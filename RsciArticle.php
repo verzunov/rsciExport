@@ -100,7 +100,7 @@ class RsciArticle
         foreach ($languages as $lang) {
             $abstract = $this->publication->getData('abstract', $lang);
 
-            $abstractElement=$abstractsElement->addChild("abstract", strip_tags($this->xmlSafe($abstract)));
+            $abstractElement=$abstractsElement->addChild("abstract", strip_tags($this->xmlSafe((string)$abstract)));
             $abstractElement->addAttribute('lang', strtoupper(LocaleConversion::get3LetterIsoFromLocale($lang)));
         }
         $textElement = $this->articleElement->addChild("text",$this->text);
