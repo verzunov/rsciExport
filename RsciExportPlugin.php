@@ -1,69 +1,62 @@
 <?php
 /**
  * @file RsciExportPlugin.inc.php
- *
- * Copyright (c) 2014-2020 Simon Fraser University
- * Copyright (c) 2003-2020 John Willinsky
- * Distributed under the GNU GPL v3. For full terms see the file LICENSE.
- *
- * @class RsciExportPlugin
- * @brief An rsci plugin demonstrating how to write an import/export plugin.
  */
 
 namespace APP\plugins\importexport\rsciExport;
+
 use Exception;
 use APP\core\Application;
 use APP\facades\Repo;
 use APP\submission\Submission;
-
 use APP\template\TemplateManager;
 use Illuminate\Support\LazyCollection;
 use PKP\plugins\ImportExportPlugin;
 use ZipArchive;
 use RecursiveIteratorIterator;
 use RecursiveDirectoryIterator;
-// В самом верху RsciExportPlugin.php
-(function () {
-    $autoload = __DIR__ . '/vendor/autoload.php';
-    if (is_file($autoload)) {
-        // Используем composer, если зависимости действительно установлены
-        require_once $autoload;
-        return;
-    }
 
-    // Fallback без composer: подключаем свои классы вручную
-    $files = [
-        __DIR__ . '/RsciJournal.php',
-        __DIR__ . '/RsciIssue.php',
-        __DIR__ . '/RsciArticle.php',
-        __DIR__ . '/RsciAuthor.php',
-        __DIR__ . '/RsciJournalInfo.php',
-    ];
-    foreach ($files as $f) {
-        if (is_file($f)) {
-            require_once $f;
+
+
+
+
+
+
+// Автозагрузка: composer или ручное подключение
+$autoload = __DIR__ . '/vendor/autoload.php';
+if (is_file($autoload)) {
+    require_once $autoload;
+} else {
+    foreach (['RsciJournal.php', 'RsciIssue.php', 'RsciArticle.php', 'RsciAuthor.php', 'RsciJournalInfo.php'] as $file) {
+        $path = __DIR__ . '/' . $file;
+        if (is_file($path)) {
+            require_once $path;
         }
     }
-})();
+}
+
 
 
 
 class RsciExportPlugin extends ImportExportPlugin
 {
-    public function register($category, $path, $mainContextId = NULL)
+    public function register($category, $path, $mainContextId = null)
     {
-        error_log("Тут зашёл в register()");
-        $success = parent::register($category, $path);
+        $success = parent::register($category, $path, $mainContextId);
 
-        $this->addLocaleData();
+        if ($success) {
+            $this->addLocaleData();
+        }
 
         return $success;
     }
 
-    public function getName()
+    public function getName(): string
     {
+        // Должно совпадать с названием папки плагина (rsciExport)
         return 'rsciExport';
     }
+
 
     public function getDisplayName()
     {
@@ -196,69 +189,121 @@ class RsciExportPlugin extends ImportExportPlugin
     {
         parent::display($args, $request);
 
-        // Get the journal, press or preprint server id
-        $contextId = Application::get()->getRequest()->getContext()->getId();
+        $context = $request->getContext();
+        if (!$context) {
+            throw new \RuntimeException('No context found');
+        }
+        $contextId = $context->getId();
 
-        // Use the path to determine which action
-        // should be taken.
-        $path = array_shift($args);
-        switch ($path) {
+        $op = array_shift($args) ?: null;
 
-            // Stream a CSV file for download
-            case 'exportAll':
-                //header('content-type: text/comma-separated-values');
-                //header('content-disposition: attachment; filename=articles-' . date('Ymd') . '.xml');
-
-                $submissions = $this->getAll($contextId);
-                //$issues = $this->getAllIssues($contextId);
-                //$this->export($submissions, 'php://output');
-
-                break;
-
-            // When no path is requested, display a list of submissions
-            // to export and a button to run the `exportAll` path.
-            case 'exportByIssue':
-                $issueId = (int)$request->getUserVar('issueId');
-
-                if ($issueId) {
-                    //header('content-type: text/comma-separated-values');
-                    //header('content-disposition: attachment; filename=issue-' . $issueId . '-' . date('Ymd') . '.xml');
-                    try {
-                        $context = $request->getContext();
-                        $tempPath = $this->createTempDirectory('issue' . $issueId . '_');
-                        $rsciJournal = new RsciJournal($context, $tempPath); // Добавить отображение нескольких журналов
-                        $xmlStr = $rsciJournal->getXML($issueId);
-                        //$submissions = $this->getByIssue($contextId, $issueId);
-
-                        $filePath = $tempPath . '/' . $issueId . '-' . date('Ymd') . '.xml';
-                        file_put_contents($filePath, $xmlStr);
-                        $zipFile = $this->createZipInSameDirectory($tempPath);
-                        $this->downloadZipArchive($zipFile);
-
-                        $this->deleteTempDirectory($tempPath);
-                    } catch (Exception $e) {
-                        error_log("Ошибка: " . $e->getMessage());
-                    }
-                    //$this->export($submissions, 'php://output');
-                } else {
-                    // Если номер не выбран, вернуть на страницу с сообщением об ошибке
-                    $request->redirect(null, 'index', null, ['error' => 'noIssueSelected']);
+        switch ($op) {
+            case 'exportByIssue': {
+                $issueId = (int) $request->getUserVar('issueId');
+                if (!$issueId) {
+                    // Номер не выбран — редирект обратно
+                    $request->redirect(
+                        null, 'management', 'importexport',
+                        ['plugin', $this->getName()]
+                    );
+                    return;
                 }
-                break;
-            default:
+
+                try {
+                    $tempPath   = $this->createTempDirectory('issue' . $issueId . '_');
+                    $rsciJournal = new \APP\plugins\importexport\rsciExport\RsciJournal($context, $tempPath);
+                    $xmlStr     = $rsciJournal->getXML($issueId);
+
+                    $filePath = $tempPath . '/' . $issueId . '-' . date('Ymd') . '.xml';
+                    file_put_contents($filePath, $xmlStr);
+
+                    $zipFile = $this->createZipInSameDirectory($tempPath);
+
+                    // путь к корню приложения
+                    $appBase = realpath(__DIR__ . '/../../..');
+
+                    // публичная папка journals/{contextId}/exports
+                    $publicExportDir = $appBase
+                        . DIRECTORY_SEPARATOR . 'public'
+                        . DIRECTORY_SEPARATOR . 'journals'
+                        . DIRECTORY_SEPARATOR . $contextId
+                        . DIRECTORY_SEPARATOR . 'exports';
+
+                    if (!is_dir($publicExportDir)) {
+                        if (!mkdir($publicExportDir, 0775, true) && !is_dir($publicExportDir)) {
+                            throw new \RuntimeException('Не удалось создать директорию для экспорта: ' . $publicExportDir);
+                        }
+                    }
+
+                    $targetFile = $publicExportDir . DIRECTORY_SEPARATOR . basename($zipFile);
+                    if (!@rename($zipFile, $targetFile)) {
+                        // если rename не удаётся, попытать copy + unlink
+                        if (!@copy($zipFile, $targetFile)) {
+                            throw new \RuntimeException('Не удалось переместить архив в публичную папку');
+                        }
+                        @unlink($zipFile);
+                    }
+
+                    // удаляем временную папку
+                    $this->deleteTempDirectory($tempPath);
+
+                    // редирект на интерфейс плагина с параметрами
+                    $fileName = basename($targetFile);
+                    $request->redirect(
+                        null, 'management', 'importexport',
+                        ['plugin', $this->getName()],
+                        ['export' => 1, 'file' => $fileName]
+                    );
+                    return;
+                } catch (\Throwable $e) {
+                    error_log('RSCI export error: ' . $e->getMessage());
+                    $request->redirect(
+                        null, 'management', 'importexport',
+                        ['plugin', $this->getName()]
+                    );
+                    return;
+                }
+            }
+
+            default: {
+                // default страница плагина
+                $router = $request->getRouter();
+                $exportByIssueUrl = $router->url(
+                    $request,
+                    null,
+                    'management',
+                    'importexport',
+                    ['plugin', $this->getName(), 'exportByIssue']
+                );
+
                 $templateMgr = TemplateManager::getManager($request);
-                $issues= $this->getAllIssues($contextId);
+
+                // проверка, вернулись ли после экспорта
+                $exportOk = $request->getUserVar('export');
+                $exportFile = $request->getUserVar('file');
+
+                if ($exportOk && $exportFile) {
+                    $downloadUrl = $request->getBaseUrl()
+                        . '/public/journals/' . $contextId
+                        . '/exports/' . rawurlencode($exportFile);
+                    $templateMgr->assign('exportSuccess', true);
+                    $templateMgr->assign('downloadUrl', $downloadUrl);
+                    $templateMgr->assign('exportFileName', $exportFile);
+                }
+
                 $templateMgr->assign([
-                    'pageTitle' => __('plugins.importexport.rsciExport.name'),
-                    'submissions' => $this->getAll($contextId),
-                    'issues' => $issues,
+                    'pageTitle'        => __('plugins.importexport.rsciExport.name'),
+                    'issues'           => $this->getAllIssues($contextId),
+                    'exportByIssueUrl' => $exportByIssueUrl,
                 ]);
 
-                $templateMgr->display(
-                    $this->getTemplateResource('export.tpl')
-                );
+                $templateMgr->display($this->getTemplateResource('export.tpl'));
+                return;
+            }
         }
     }
+
+
 
     public function executeCLI($scriptName, &$args)
     {

@@ -1,0 +1,20 @@
+msgid "plugins.importexport.rsciExport.name"
+msgstr "Экспорт РИНЦ (RSCI)"
+
+msgid "plugins.importexport.rsciExport.selectIssue"
+msgstr "Выберите выпуск для экспорта"
+
+msgid "plugins.importexport.rsciExport.id"
+msgstr "ID"
+
+msgid "plugins.importexport.rsciExport.title"
+msgstr "Название"
+
+msgid "plugins.importexport.rsciExport.exportByIssue"
+msgstr "Экспортировать выпуск"
+
+msgid "plugins.importexport.rsciExport.export.success"
+msgstr "Архив успешно создан"
+
+msgid "plugins.importexport.rsciExport.description"
+msgstr "Экспортирует метаданные статей в формат РИНЦ"

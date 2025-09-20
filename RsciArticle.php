@@ -116,22 +116,36 @@ class RsciArticle
             $refInfoElement->addChild('text', htmlspecialchars($this->removeLeadingDigitsAndDots(trim($citation))));
 
         }
-        $submissionId=$this->galleys[0]->getData('submissionFileId');
-        $galley=Repo::galley()->get($submissionId);
-        $file=Repo::submissionFile()->get($submissionId);
-        $filePath = $file->getData('path');
-        // Получаем путь из конфигурационного файла
-        $relativePath = Config::getVar('files', 'files_dir');
-        // Преобразуем относительный путь в абсолютный (если требуется)
-        $absolutePath = realpath($relativePath);
-        $fullPath = $absolutePath.DIRECTORY_SEPARATOR.$filePath;
-        $fileName = basename($filePath); // Получить имя файла из пути
-        if (file_exists($fullPath)) {
-            copy($fullPath, $this->projectFolder . DIRECTORY_SEPARATOR . $fileName);
+        if (!empty($this->galleys)) {
+            $submissionId = $this->galleys[0]->getData('submissionFileId');
+            if ($submissionId) {
+                $file = Repo::submissionFile()->get($submissionId);
+                if ($file) {
+                    $filePath = $file->getData('path');
+                    $relativePath = Config::getVar('files', 'files_dir');
+                    $absolutePath = realpath($relativePath);
+                    $fullPath = $absolutePath . DIRECTORY_SEPARATOR . $filePath;
+                    $fileName = basename($filePath);
+
+                    if (file_exists($fullPath)) {
+                        copy($fullPath, $this->projectFolder . DIRECTORY_SEPARATOR . $fileName);
+                    } else {
+                        error_log("RSCI Export: файл {$fullPath} не найден");
+                    }
+
+                    $filesElement = $this->articleElement->addChild("files");
+                    $fileElement = $filesElement->addChild("file", $fileName);
+                    $fileElement->addAttribute('desc', 'fullText');
+                } else {
+                    error_log("RSCI Export: submissionFile {$submissionId} не найден");
+                }
+            } else {
+                error_log("RSCI Export: у галлея нет submissionFileId");
+            }
+        } else {
+            error_log("RSCI Export: у публикации нет галлеев");
         }
-        $filesElement = $this->articleElement->addChild("files");
-        $fileElement=$filesElement->addChild("file", $fileName);
-        $fileElement->addAttribute('desc', 'fullText');
+
         //$text=$this->parsePdf($fullPath);
     }
 }
