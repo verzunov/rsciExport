@@ -14,6 +14,8 @@ class RsciIssue
     private SimpleXMLElement $issueElement;
     private Issue $issue;
     private string $projectFolder;
+    public const STATUS_PUBLISHED = 3;
+
 
     public function __construct(SimpleXMLElement $issueElement, Issue $issue, string $projectFolder)
     {
@@ -53,6 +55,8 @@ class RsciIssue
             return ($a1->getStartingPage() < $a2->getStartingPage()) ? -1 : 1;
         });
         foreach ($publications as $article){
+            $status = (int)$article->getData('status');
+            if ($status !== 3) continue;
             $arcticleElement = $arcticlesElement->addChild('article');
             $rsciArticle = new RsciArticle($arcticleElement, $article, $this->projectFolder);
             $rsciArticle->getXML();
