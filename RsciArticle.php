@@ -62,6 +62,21 @@ class RsciArticle
         $pdf = $parser->parseFile($pdfFilePath);
         return $pdf->getText();
     }
+    /** Делает текст XML-безопасным: убирает HTML, декодит HTML-сущности, меняет NBSP на пробел, экранирует для XML */
+    private function xmlSafe(string $s): string {
+        // 1) Убираем HTML
+        $s = strip_tags($s);
+
+        // 2) Декодируем HTML-сущности (&nbsp;, &mdash; и т.п.) в Юникод
+        $s = html_entity_decode($s, ENT_QUOTES | ENT_HTML5, 'UTF-8'); // ENT_HTML5 знает &nbsp;
+
+        // 3) Меняем неразрывный пробел U+00A0 на обычный пробел (или оставьте как есть — это валидно)
+        $s = preg_replace('/\x{00A0}/u', ' ', $s);
+
+        // 4) Экранируем для XML (важно: ENT_XML1)
+        return htmlspecialchars($s, ENT_XML1 | ENT_COMPAT, 'UTF-8');
+    }
+
     public function getXML()
     {
         $this->articleElement->addChild("pages", $this->pages);
@@ -84,7 +99,8 @@ class RsciArticle
         $abstractsElement = $this->articleElement->addChild("abstracts");
         foreach ($languages as $lang) {
             $abstract = $this->publication->getData('abstract', $lang);
-            $abstractElement=$abstractsElement->addChild("abstract", strip_tags($abstract));
+
+            $abstractElement=$abstractsElement->addChild("abstract", strip_tags($this->xmlSafe($abstract)));
             $abstractElement->addAttribute('lang', strtoupper(LocaleConversion::get3LetterIsoFromLocale($lang)));
         }
         $textElement = $this->articleElement->addChild("text",$this->text);
