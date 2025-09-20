@@ -22,12 +22,37 @@ use PKP\plugins\ImportExportPlugin;
 use ZipArchive;
 use RecursiveIteratorIterator;
 use RecursiveDirectoryIterator;
-require_once __DIR__ . '/vendor/autoload.php';
+// В самом верху RsciExportPlugin.php
+(function () {
+    $autoload = __DIR__ . '/vendor/autoload.php';
+    if (is_file($autoload)) {
+        // Используем composer, если зависимости действительно установлены
+        require_once $autoload;
+        return;
+    }
+
+    // Fallback без composer: подключаем свои классы вручную
+    $files = [
+        __DIR__ . '/RsciJournal.php',
+        __DIR__ . '/RsciIssue.php',
+        __DIR__ . '/RsciArticle.php',
+        __DIR__ . '/RsciAuthor.php',
+        __DIR__ . '/RsciJournalInfo.php',
+    ];
+    foreach ($files as $f) {
+        if (is_file($f)) {
+            require_once $f;
+        }
+    }
+})();
+
+
 
 class RsciExportPlugin extends ImportExportPlugin
 {
     public function register($category, $path, $mainContextId = NULL)
     {
+        error_log("Тут зашёл в register()");
         $success = parent::register($category, $path);
 
         $this->addLocaleData();
@@ -37,7 +62,7 @@ class RsciExportPlugin extends ImportExportPlugin
 
     public function getName()
     {
-        return 'RsciExportPlugin';
+        return 'rsciExport';
     }
 
     public function getDisplayName()
@@ -301,3 +326,4 @@ class RsciExportPlugin extends ImportExportPlugin
     }
 
 }
+
