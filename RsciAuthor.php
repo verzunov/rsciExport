@@ -39,6 +39,12 @@ class RsciAuthor
             $individElement->addChild('initials', $initials);
             $orgName=$this->author->getData('affiliation', $lang);
             $individElement->addChild('orgName', $orgName);
+            $email=$this->author->getData('email');
+            $individElement->addChild('email', $email);
+            $countryCode = $this->author->getData('country');
+            $countryName = \Locale::getDisplayRegion('-' . $countryCode) ?: $countryCode;
+            if ($countryName=="Киргизия") $countryName='Кыргызская Республика';
+            $individElement->addChild('country', $countryName);
         }
     }
 }
