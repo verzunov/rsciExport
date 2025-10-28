@@ -42,9 +42,16 @@ class RsciAuthor
             $email=$this->author->getData('email');
             $individElement->addChild('email', $email);
             $countryCode = $this->author->getData('country');
-            $countryName = \Locale::getDisplayRegion('-' . $countryCode) ?: $countryCode;
-            if ($countryName=="Киргизия") $countryName='Кыргызская Республика';
-            $individElement->addChild('country', $countryName);
+            if (!empty($countryCode)) {
+                // Указываем локаль для отображения страны
+                $icuLocale = $lang === 'ru' ? 'ru' : 'en';
+                $countryName = \Locale::getDisplayRegion('-' . $countryCode, $icuLocale) ?: $countryCode;
+                // Специальное правило для Кыргызстана
+                if (strtoupper($countryCode) === 'KG') {
+                    $countryName = ($lang === 'ru') ? 'Кыргызская Республика' : 'Kyrgyz Republic';
+                }
+                $individElement->addChild('country', $countryName);
+            }
         }
     }
 }
