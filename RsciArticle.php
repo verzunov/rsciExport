@@ -89,7 +89,7 @@ class RsciArticle
             $rsciAuthor = new RsciAuthor($authorElement, $author,++$num);
             $rsciAuthor->toXML();
         }
-        $languages= array('ru', 'en');
+        $languages= array('ru', 'en','ky');
         $titlesElement = $this->articleElement->addChild("artTitles");
         foreach ($languages as $lang) {
             $title = $this->publication->getData('title', $lang);
@@ -109,18 +109,30 @@ class RsciArticle
         $codesElement = $this->articleElement->addChild("codes");
         $codesElement->addChild('udk', $this->udk);
         $keywordsElement = $this->articleElement->addChild("keywords");
+
         foreach ($languages as $lang) {
-            $keywords = $this->publication->getData('keywords', $lang);
-            if (!empty($keywords) && is_array($keywords)) {
-                $keywords = preg_split("/[,;]/", $keywords[0]);
-                $kwdGroupElement = $keywordsElement->addChild("kwdGroup");
-                $kwdGroupElement->addAttribute('lang', strtoupper(LocaleConversion::get3LetterIsoFromLocale($lang)));
-                foreach ($keywords as $keyword) {
-                    $kwdGroupElement->addChild("keyword", str_replace('.', '', trim($keyword)));
-                }
+            $kwList = $this->publication->getData('keywords', $lang);
+
+            if (empty($kwList) || !is_array($kwList)) {
+                continue;
             }
 
+            $kwdGroupElement = $keywordsElement->addChild("kwdGroup");
+            $kwdGroupElement->addAttribute('lang', strtoupper(LocaleConversion::get3LetterIsoFromLocale($lang)));
+
+            foreach ($kwList as $kwRaw) {
+                // поддержка случая "слово1, слово2; слово3"
+                $parts = preg_split('/[,;]/u', (string)$kwRaw);
+                foreach ($parts as $kw) {
+                    $kw = trim(str_replace('.', '', $kw));
+                    if ($kw === '') continue;
+
+                    // лучше XML-safe (если вдруг & / кавычки / спецсимволы)
+                    $kwdGroupElement->addChild("keyword", $this->xmlSafe($kw));
+                }
+            }
         }
+
         $citations=preg_split("/\r\n|\n|\r/",$this->citationsRaw);
         $referencesElement = $this->articleElement->addChild("references");
 
@@ -133,34 +145,86 @@ class RsciArticle
 
         }
         if (!empty($this->galleys)) {
-            $submissionId = $this->galleys[0]->getData('submissionFileId');
-            if ($submissionId) {
-                $file = Repo::submissionFile()->get($submissionId);
-                if ($file) {
-                    $filePath = $file->getData('path');
-                    $relativePath = Config::getVar('files', 'files_dir');
-                    $absolutePath = realpath($relativePath);
-                    $fullPath = $absolutePath . DIRECTORY_SEPARATOR . $filePath;
-                    $fileName = basename($filePath);
 
-                    if (file_exists($fullPath)) {
-                        copy($fullPath, $this->projectFolder . DIRECTORY_SEPARATOR . $fileName);
+            // 1) найдём PDF-галлей, а не просто первый
+            $pdfGalley = null;
+            foreach ($this->galleys as $g) {
+                $sid = (int) $g->getData('submissionFileId');
+                if (!$sid) {
+                    continue;
+                }
+
+                $f = Repo::submissionFile()->get($sid);
+                if (!$f) {
+                    continue;
+                }
+
+                $path = (string) $f->getData('path');
+                $ext  = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+                $mime = (string) $f->getData('mimetype'); // иногда есть, иногда нет
+
+                // критерий PDF
+                if ($ext === 'pdf' || $mime === 'application/pdf') {
+                    $pdfGalley = $g;
+                    break;
+                }
+            }
+
+            if (!$pdfGalley) {
+                error_log("RSCI Export: не найден PDF galley для публикации " . $this->publication->getId());
+            } else {
+
+                $submissionId = (int) $pdfGalley->getData('submissionFileId');
+                $file = Repo::submissionFile()->get($submissionId);
+
+                if (!$file) {
+                    error_log("RSCI Export: submissionFile {$submissionId} не найден");
+                } else {
+
+                    $filePath = (string) $file->getData('path');
+                    $filesDir = (string) Config::getVar('files', 'files_dir'); // у вас /var/ojs-files/pau
+
+                    // В OJS path обычно относительный (journals/..../file.pdf)
+                    $fullPath = (strpos($filePath, DIRECTORY_SEPARATOR) === 0)
+                        ? $filePath
+                        : rtrim($filesDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . ltrim($filePath, DIRECTORY_SEPARATOR);
+
+                    $fileName = basename($filePath);
+                    $target   = rtrim($this->projectFolder, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $fileName;
+
+                    error_log("RSCI Export: пробую копировать PDF: sid={$submissionId}; fullPath={$fullPath}; target={$target}");
+
+                    if (!file_exists($fullPath)) {
+                        error_log("RSCI Export: файл не найден: {$fullPath}");
+                    } elseif (!is_readable($fullPath)) {
+                        error_log("RSCI Export: нет прав на чтение: {$fullPath}");
+                    } elseif (!is_dir($this->projectFolder)) {
+                        error_log("RSCI Export: projectFolder не существует: {$this->projectFolder}");
+                    } elseif (!is_writable($this->projectFolder)) {
+                        error_log("RSCI Export: нет прав на запись в projectFolder: {$this->projectFolder}");
                     } else {
-                        error_log("RSCI Export: файл {$fullPath} не найден");
+                        $ok = @copy($fullPath, $target);
+                        if (!$ok) {
+                            $err = error_get_last();
+                            error_log("RSCI Export: copy() failed: " . ($err['message'] ?? 'unknown error'));
+                        } else {
+                            error_log("RSCI Export: PDF скопирован OK: {$target}");
+                        }
                     }
 
-                    $filesElement = $this->articleElement->addChild("files");
-                    $fileElement = $filesElement->addChild("file", $fileName);
-                    $fileElement->addAttribute('desc', 'fullText');
-                } else {
-                    error_log("RSCI Export: submissionFile {$submissionId} не найден");
+                    // XML-описание файла (добавляйте только если реально скопировали)
+                    if (file_exists($target)) {
+                        $filesElement = $this->articleElement->addChild("files");
+                        $fileElement = $filesElement->addChild("file", $fileName);
+                        $fileElement->addAttribute('desc', 'fullText');
+                    }
                 }
-            } else {
-                error_log("RSCI Export: у галлея нет submissionFileId");
             }
+
         } else {
-            error_log("RSCI Export: у публикации нет галлеев");
+            error_log("RSCI Export: у публикации нет галлеев (publicationId=" . $this->publication->getId() . ")");
         }
+
 
         //$text=$this->parsePdf($fullPath);
     }

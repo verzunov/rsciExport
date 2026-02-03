@@ -26,7 +26,7 @@ class RsciAuthor
 
         $this->authorElement->addAttribute('num', $this->num);
 
-        $languages= array('ru', 'en');
+        $languages= array('ru', 'en', 'ky');
         foreach ($languages as $lang)
         {
 
@@ -37,7 +37,40 @@ class RsciAuthor
             else $individElement->addChild('surname','None');
             $initials=$this->author->getData('givenName', $lang);
             $individElement->addChild('initials', $initials);
-            $orgName=$this->author->getData('affiliation', $lang);
+            $orgName = null;
+
+// OJS 3.3+: affiliations хранится как массив объектов Affiliation
+            $affiliations = $this->author->getData('affiliations');
+
+            if (is_array($affiliations) && !empty($affiliations)) {
+                /** @var \PKP\affiliation\Affiliation $aff */
+                $aff = reset($affiliations);
+
+                // Пытаемся взять name в нужном языке
+                $orgName = $aff->getData('name', $lang);
+
+                // Фоллбеки: ru -> en -> ky (или любой первый доступный)
+                if (empty($orgName)) {
+                    $orgName = $aff->getData('name', 'ru')
+                        ?: $aff->getData('name', 'en')
+                            ?: $aff->getData('name', 'ky');
+
+                    if (empty($orgName)) {
+                        $nameArr = $aff->getData('name');
+                        if (is_array($nameArr) && !empty($nameArr)) {
+                            $orgName = reset($nameArr);
+                        }
+                    }
+                }
+            }
+
+// Если по старым данным вдруг есть 'affiliation' — используем как fallback
+            if (empty($orgName)) {
+                $orgName = $this->author->getData('affiliation', $lang);
+            }
+
+            $individElement->addChild('orgName', $orgName ?: 'None');
+
             $individElement->addChild('orgName', $orgName);
             $email=$this->author->getData('email');
             $individElement->addChild('email', $email);
