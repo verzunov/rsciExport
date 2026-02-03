@@ -36,7 +36,7 @@ class RsciArticle
     {
         $this->articleElement = $articleElement;
         $this->publication = $publication;
-        $this->pages = sprintf("%s - %s",$publication->getStartingPage(),$publication->getEndingPage());
+        $this->pages = sprintf("%s-%s",$publication->getStartingPage(),$publication->getEndingPage());
         $this->artType = "RAR";
         $this->langPubl = strtoupper(LocaleConversion::get3LetterIsoFromLocale($publication->getData('locale')));
         $this->text=str_repeat('*', 500);
